@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EcoPools — Our Projects</title>
+
+<!-- Leaflet core -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<!-- Leaflet marker clustering -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+
+<!-- CSV parsing for the Google Sheet feed -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+<!-- Brand fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700;900&family=Mulish:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --forest:   #2E5E4E;
+    --forest-dark: #1F4436;
+    --stone:    #F5F0E8;
+    --stone-lt: #FBF8F3;
+    --white:    #FFFFFF;
+    --ink:      #22302A;
+    --ink-soft: #5B6963;
+    --line:     rgba(34,48,42,0.12);
+    --radius-marker: 500; /* metres — matches EcoPools' privacy requirement */
+    --zoom-threshold: 14; /* zoom level at which pins swap to privacy circles */
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    height: 100%;
+    font-family: 'Mulish', sans-serif;
+    color: var(--ink);
+    background: var(--stone-lt);
+    overflow: hidden;
+  }
+
+  #map {
+    position: absolute;
+    inset: 0;
+    background: var(--stone-lt);
+  }
+
+  /* ---------- Loading state ---------- */
+  #loading {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--stone-lt);
+    z-index: 2000;
+    transition: opacity 0.4s ease;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  .loader-ring {
+    width: 34px; height: 34px;
+    border: 3px solid var(--line);
+    border-top-color: var(--forest);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading p {
+    font-size: 14px;
+    color: var(--ink-soft);
+    letter-spacing: 0.01em;
+  }
+  #load-error {
+    display: none;
+    position: absolute; inset: 0;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px;
+    background: var(--stone-lt);
+    z-index: 2000;
+    padding: 24px; text-align: center;
+  }
+  #load-error h2 { font-family: 'Lato', sans-serif; font-size: 18px; margin: 0; }
+  #load-error p { font-size: 14px; color: var(--ink-soft); max-width: 340px; margin: 0; }
+
+  /* ---------- Legend / filter panel ---------- */
+  #panel {
+    position: absolute;
+    top: 16px; left: 16px;
+    z-index: 1000;
+    background: var(--white);
+    border-radius: 10px;
+    box-shadow: 0 2px 14px rgba(34,48,42,0.14);
+    padding: 14px 16px;
+    min-width: 190px;
+    font-size: 13px;
+  }
+  #panel h1 {
+    font-family: 'Lato', sans-serif;
+    font-weight: 900;
+    font-size: 15px;
+    margin: 0 0 10px;
+    color: var(--forest-dark);
+  }
+  .legend-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px;
+    color: var(--ink-soft);
+  }
+  .legend-row:last-child { margin-bottom: 0; }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .legend-dot.public  { background: #3DBE5A; }
+  .legend-dot.private { background: #E5484D; }
+  #count {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  #count strong { color: var(--forest-dark); }
+
+  /* ---------- Popup card ---------- */
+  .leaflet-popup-content-wrapper {
+    padding: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 28px rgba(34,48,42,0.22);
+  }
+  .leaflet-popup-content { margin: 0; width: 260px !important; }
+  .leaflet-popup-tip { background: var(--white); }
+
+  .card-photo {
+    width: 100%; height: 140px;
+    object-fit: cover;
+    display: block;
+    background: var(--stone);
+  }
+  .card-body { padding: 14px 16px 16px; }
+  .card-tag {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--forest);
+    background: rgba(46,94,78,0.09);
+    border-radius: 20px;
+    padding: 3px 9px;
+    margin-bottom: 8px;
+  }
+  .card-title {
+    font-family: 'Lato', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    line-height: 1.25;
+    color: var(--ink);
+    margin: 0 0 4px;
+  }
+  .card-meta {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    margin: 0 0 8px;
+  }
+  .card-desc {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink);
+    margin: 0;
+  }
+
+  /* ---------- Cluster styling (override default blue) ---------- */
+  .ep-cluster {
+    background: rgba(91,105,99,0.88);
+    border: 3px solid rgba(255,255,255,0.9);
+    border-radius: 50%;
+    color: var(--white);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Lato', sans-serif;
+    font-weight: 700;
+  }
+
+  @media (max-width: 640px) {
+    #panel { top: 10px; left: 10px; min-width: 150px; padding: 10px 12px; }
+    #panel h1 { font-size: 13px; }
+    .legend-row { font-size: 11.5px; }
+    .leaflet-popup-content { width: 220px !important; }
+    .card-photo { height: 110px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="panel">
+  <h1>Our Projects</h1>
+  <div class="legend-row"><span class="legend-dot public"></span> Public installation</div>
+  <div class="legend-row"><span class="legend-dot private"></span> Private installation</div>
+  <div id="count">Loading projects…</div>
+</div>
+
+<div id="loading">
+  <div class="loader-ring"></div>
+  <p>Loading project map…</p>
+</div>
+
+<div id="load-error">
+  <h2>Map couldn't load</h2>
+  <p>We're having trouble reaching the project data right now. Please refresh the page, or contact EcoPools if this keeps happening.</p>
+</div>
+
+<script>
+/* =====================================================================
+   CONFIG — swap SHEET_SOURCES for the real published-CSV links per tab.
+   Each entry is one country/region tab in the shared Google Sheet.
+   ===================================================================== */
+const SHEET_SOURCES = [
+  { label: "Cape Town", url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQZ2niCAjCpEuyU4nqDzmnB7zqjAN0KmjS1hMkX8EoIYvRSQT8iVddzcQPLbYZ8hl05yjo8J7v2hRIq/pub?gid=1573504572&single=true&output=csv" },
+  // { label: "Australia",  url: "https://docs.google.com/spreadsheets/d/e/XXXX/pub?gid=123&single=true&output=csv" },
+  // { label: "Croatia",    url: "https://docs.google.com/spreadsheets/d/e/XXXX/pub?gid=456&single=true&output=csv" },
+];
+
+const USE_STUB_DATA = SHEET_SOURCES.length === 0; // auto-falls back to stub data until sheet links are added above
+
+const ZOOM_THRESHOLD = 14;      // zoom level at which pins become privacy circles
+const CIRCLE_RADIUS_M = 500;    // fixed privacy circle radius in metres
+const PLACEHOLDER_PHOTO =
+  'data:image/svg+xml;utf8,' + encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="260" height="140">
+      <rect width="260" height="140" fill="#F5F0E8"/>
+      <text x="130" y="74" font-family="Mulish, sans-serif" font-size="12" fill="#8A968F" text-anchor="middle">Photo coming soon</text>
+    </svg>`);
+
+/* =====================================================================
+   STUB DATA — real column structure from the EcoPools Cape Town sheet.
+   Suburb-level coordinates + deterministic jitter (see jitterCoords()).
+   Delete this block once SHEET_SOURCES points at the live CSV(s).
+   ===================================================================== */
+const SUBURB_COORDS = {
+  "Tulbagh":              [-33.2833, 19.1333],
+  "Newlands":              [-33.9767, 18.4523],
+  "Stellenbosch":          [-33.9346, 18.8662],
+  "Noordhoek":             [-34.1000, 18.3833],
+  "De Zalze Golf Estate":  [-33.9500, 18.8167],
+  "Villiersdorp":          [-33.9833, 19.2833],
+  "Franschhoek Mountains": [-33.9119, 19.1206],
+  "Marina da Gama":        [-34.0906, 18.4747],
+  "Stanford":              [-34.4333, 19.4500],
+  "Constantia":            [-34.0333, 18.4167],
+};
+
+const STUB_ROWS = [
+  { name: "Rijks Estate",         area: "Tulbagh",              type: "NSP",  size: 40,  nbConv: "Conv", images: "Yes", vis: "Public",  year: 2022 },
+  { name: "Bridget Woods",        area: "Newlands",              type: "EI",   size: 25,  nbConv: "Conv", images: "",    vis: "Private", year: 2022 },
+  { name: "Spier Estate",         area: "Stellenbosch",          type: "EP",   size: 150, nbConv: "NB",   images: "",    vis: "Private", year: 2018 },
+  { name: "Megan Knox",           area: "Noordhoek",              type: "EI",   size: 30,  nbConv: "Conv", images: "Yes", vis: "Private", year: 2014 },
+  { name: "Hans Kieslich",        area: "De Zalze Golf Estate",   type: "NSP",  size: 60,  nbConv: "NB",   images: "Yes", vis: "Private", year: 2014 },
+  { name: "Christine Cooper",     area: "Villiersdorp",           type: "NSP",  size: 100, nbConv: "NB",   images: "Yes", vis: "Private", year: 2011 },
+  { name: "Meret Storck Matchett",area: "Noordhoek",              type: "EP",   size: 60,  nbConv: "NB",   images: "Yes", vis: "Private", year: 2021 },
+  { name: "Paddekloof",           area: "Franschhoek Mountains",  type: "Lake", size: 500, nbConv: "NB",   images: "Yes", vis: "Private", year: 2023 },
+  { name: "Liz De Wet",           area: "Marina da Gama",         type: "EI",   size: 25,  nbConv: "Conv", images: "Yes", vis: "Private", year: 2026 },
+  { name: "Chris Wolf",           area: "Stanford",               type: "EP",   size: 80,  nbConv: "NB",   images: "Yes", vis: "Private", year: 2014 },
+  { name: "Topat",                area: "Constantia",             type: "NSP",  size: 400, nbConv: "NB",   images: "Yes", vis: "Private", year: 2012 },
+  { name: "Rob Duk",              area: "Newlands",               type: "EP",   size: 60,  nbConv: "NB",   images: "Yes", vis: "Private", year: 2026 },
+];
+
+/* Simple deterministic string hash -> used to seed jitter so a given
+   row always lands in the same spot on every page load (not random
+   each refresh), while still spreading same-suburb rows apart. */
+function seededRandom(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  }
+  // two pseudo-random values in [0,1) from the same seed
+  const a = ((h >>> 0) % 10000) / 10000;
+  const b = (((h * 2654435761) >>> 0) % 10000) / 10000;
+  return [a, b];
+}
+
+// Offsets a suburb centroid by a random 200–500m distance in a random
+// direction, seeded per-row so it's stable across reloads.
+function jitterCoords(lat, lng, seedStr) {
+  const [r1, r2] = seededRandom(seedStr);
+  const distance = 200 + r1 * 300;      // 200–500m
+  const angle = r2 * 2 * Math.PI;
+  const dLat = (distance * Math.cos(angle)) / 111320;
+  const dLng = (distance * Math.sin(angle)) / (111320 * Math.cos(lat * Math.PI / 180));
+  return [lat + dLat, lng + dLng];
+}
+
+function stubRowsToProjects() {
+  return STUB_ROWS.map((row, i) => {
+    const base = SUBURB_COORDS[row.area] || [-33.9249, 18.4241]; // Cape Town CBD fallback
+    const [lat, lng] = jitterCoords(base[0], base[1], row.name + i);
+    return {
+      name: row.name,
+      area: row.area,
+      country: "South Africa",
+      lat, lng,
+      type: row.type,
+      description: `${row.type} ${row.nbConv === 'NB' ? 'new build' : 'conversion'}, approx. ${row.size}m².`,
+      photo: PLACEHOLDER_PHOTO,
+      year: row.year,
+      visibility: row.vis, // "Public" | "Private"
+    };
+  });
+}
+
+/* =====================================================================
+   REAL SHEET PARSING — maps your actual published CSV columns to the
+   same project object shape as stubRowsToProjects(). Update the column
+   names below once the sheet has Lat/Long + Photo URL columns added.
+   ===================================================================== */
+function csvRowToProject(row, index) {
+  const lat = parseFloat(row["Latitude"]);
+  const lng = parseFloat(row["Longitude"]);
+  const size = row["Approx m2"] || "";
+  const nbConv = row["NB/Conv"] || "";
+  const name = row["Client Name"] || "Project";
+
+  let finalLat = lat, finalLng = lng;
+  if (!isNaN(lat) && !isNaN(lng)) {
+    [finalLat, finalLng] = jitterCoords(lat, lng, name + "_" + index);
+  }
+
+  return {
+    name,
+    area: row["Area"] || "",
+    country: row["Country"] || "South Africa",
+    lat: isNaN(lat) ? null : finalLat,
+    lng: isNaN(lng) ? null : finalLng,
+    type: row["Type"] || "",
+    description: `${row["Type"] || ""} ${nbConv === 'NB' ? 'new build' : nbConv === 'Conv' ? 'conversion' : ''}${size ? `, approx. ${size}m²` : ''}`.trim(),
+    photo: row["Photo"] || PLACEHOLDER_PHOTO,
+    year: row["Year"] || "",
+    visibility: (row["Publ/Priv"] || "Private").trim(),
+  };
+}
+
+function fetchSheet(source) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(source.url, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => resolve(results.data.map((row, i) => csvRowToProject(row, i))),
+      error: reject,
+    });
+  });
+}
+
+async function loadAllProjects() {
+  if (USE_STUB_DATA) {
+    return stubRowsToProjects();
+  }
+  const batches = await Promise.all(SHEET_SOURCES.map(fetchSheet));
+  return batches.flat().filter(p => p.lat !== null && p.lng !== null);
+}
+
+/* =====================================================================
+   MAP SETUP
+   ===================================================================== */
+const map = L.map('map', {
+  zoomControl: false,
+  minZoom: 2,
+  maxZoom: 18,
+}).setView([-33.95, 18.55], 11); // default: Cape Town
+
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 19,
+}).addTo(map);
+
+const clusterGroup = L.markerClusterGroup({
+  maxClusterRadius: 50,
+  iconCreateFunction: (cluster) => {
+    const count = cluster.getChildCount();
+    const size = count < 10 ? 34 : count < 50 ? 42 : 50;
+    return L.divIcon({
+      html: `<div class="ep-cluster" style="width:${size}px;height:${size}px;font-size:${count < 50 ? 13 : 14}px;">${count}</div>`,
+      className: '',
+      iconSize: [size, size],
+    });
+  },
+});
+
+const PUBLIC_COLOR  = '#3DBE5A'; // public installations
+const PRIVATE_COLOR = '#E5484D'; // private installations
+const NEUTRAL_COLOR = '#5B6963'; // cluster badges (mix of public + private, so kept neutral)
+
+function pinIcon(visibility) {
+  const color = visibility === 'Public' ? PUBLIC_COLOR : PRIVATE_COLOR;
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      width:16px;height:16px;border-radius:50%;
+      background:${color};
+      border:2.5px solid white;
+      box-shadow:0 1px 4px rgba(0,0,0,0.35);
+    "></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
+}
+
+function popupHtml(p) {
+  const showRealName = p.visibility === 'Public';
+  const title = showRealName ? p.name : `Private ${p.type}`.trim();
+  const metaParts = [p.area, p.country !== 'South Africa' ? p.country : null, p.year].filter(Boolean);
+  return `
+    <img class="card-photo" src="${p.photo}" alt="${title}" loading="lazy" onerror="this.src='${PLACEHOLDER_PHOTO}'">
+    <div class="card-body">
+      <span class="card-tag">${p.type || 'Project'}</span>
+      <p class="card-title">${title}</p>
+      <p class="card-meta">${metaParts.join(' · ')}</p>
+      <p class="card-desc">${p.description || ''}</p>
+    </div>
+  `;
+}
+
+/* =====================================================================
+   RENDER — each project gets a marker (in the cluster group) AND a
+   privacy circle (added/removed directly on the map based on zoom).
+   Both are clickable and open the same popup card.
+   ===================================================================== */
+let projectLayers = []; // { project, marker, circle }
+
+function buildLayers(projects) {
+  projectLayers = projects.map((p) => {
+    const marker = L.marker([p.lat, p.lng], { icon: pinIcon(p.visibility) });
+    marker.bindPopup(popupHtml(p), { closeButton: true, maxWidth: 280 });
+
+    const circleColor = p.visibility === 'Public' ? PUBLIC_COLOR : PRIVATE_COLOR;
+    const circle = L.circle([p.lat, p.lng], {
+      radius: CIRCLE_RADIUS_M,
+      color: circleColor,
+      weight: 1.5,
+      fillColor: circleColor,
+      fillOpacity: 0.22,
+      opacity: 0.7,
+    });
+    circle.bindPopup(popupHtml(p), { closeButton: true, maxWidth: 280 });
+
+    clusterGroup.addLayer(marker);
+    return { project: p, marker, circle };
+  });
+  map.addLayer(clusterGroup);
+  updateZoomState();
+}
+
+// Swap pins -> privacy circles past the zoom threshold.
+function updateZoomState() {
+  const zoomedIn = map.getZoom() >= ZOOM_THRESHOLD;
+  projectLayers.forEach(({ marker, circle }) => {
+    const clusterHasMarker = clusterGroup.hasLayer(marker);
+    if (zoomedIn) {
+      if (clusterHasMarker) clusterGroup.removeLayer(marker);
+      if (!map.hasLayer(circle)) circle.addTo(map);
+    } else {
+      if (!clusterHasMarker) clusterGroup.addLayer(marker);
+      if (map.hasLayer(circle)) map.removeLayer(circle);
+    }
+  });
+}
+map.on('zoomend', updateZoomState);
+
+/* =====================================================================
+   BOOT
+   ===================================================================== */
+(async function init() {
+  try {
+    const projects = await loadAllProjects();
+    buildLayers(projects);
+
+    const publicCount = projects.filter(p => p.visibility === 'Public').length;
+    document.getElementById('count').innerHTML =
+      `<strong>${projects.length}</strong> projects shown${USE_STUB_DATA ? ' <em>(sample data)</em>' : ''}`;
+
+    if (projects.length) {
+      const bounds = L.latLngBounds(projects.map(p => [p.lat, p.lng]));
+      map.fitBounds(bounds.pad(0.2));
+    }
+
+    document.getElementById('loading').classList.add('hidden');
+  } catch (err) {
+    console.error('Failed to load project data:', err);
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('load-error').style.display = 'flex';
+  }
+})();
+</script>
+</body>
+</html>
