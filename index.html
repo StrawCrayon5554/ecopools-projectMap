@@ -23,7 +23,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700;900&family=Mulish:wght@400;500;600&display=swap" rel="stylesheet">
 
 <style>
-  :root{
+    :root{
     --forest:   #2E5E4E;
     --forest-dark: #1F4436;
     --stone:    #F5F0E8;
@@ -32,8 +32,9 @@
     --ink:      #22302A;
     --ink-soft: #5B6963;
     --line:     rgba(34,48,42,0.12);
-    --radius-marker: 500; /* metres — matches EcoPools' privacy requirement */
-    --zoom-threshold: 14; /* zoom level at which pins swap to privacy circles */
+    --map-dark: #E8E9E6;
+    --radius-marker: 500;
+    --zoom-threshold: 14;
   }
 
   * { box-sizing: border-box; }
@@ -43,23 +44,23 @@
     height: 100%;
     font-family: 'Mulish', sans-serif;
     color: var(--ink);
-    background: var(--stone-lt);
+    background: var(--map-dark);
     overflow: hidden;
   }
 
   #map {
     position: absolute;
     inset: 0;
-    background: var(--stone-lt);
+    background: var(--map-dark);
   }
 
   /* ---------- Loading state ---------- */
-  #loading {
+    #loading {
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
     flex-direction: column;
     gap: 12px;
-    background: var(--stone-lt);
+    background: var(--map-dark);
     z-index: 2000;
     transition: opacity 0.4s ease;
   }
@@ -82,13 +83,13 @@
     position: absolute; inset: 0;
     align-items: center; justify-content: center;
     flex-direction: column; gap: 10px;
-    background: var(--stone-lt);
+    background: var(--map-dark);
     z-index: 2000;
     padding: 24px; text-align: center;
   }
-  #load-error h2 { font-family: 'Lato', sans-serif; font-size: 18px; margin: 0; }
-  #load-error p { font-size: 14px; color: var(--ink-soft); max-width: 340px; margin: 0; }
-
+  #load-error h2 { font-family: 'Lato', sans-serif; font-size: 18px; margin: 0; color: var(--stone); }
+  #load-error p { font-size: 14px; color: rgba(255,255,255,0.65); max-width: 340px; margin: 0; }
+  
   /* ---------- Legend / filter panel ---------- */
   #panel {
     position: absolute;
@@ -119,8 +120,8 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .legend-dot.public  { background: #3DBE5A; }
-  .legend-dot.private { background: #E5484D; }
+  .legend-dot.public  { background: #2F80ED; }
+  .legend-dot.private { background: #2E9E4E; }
   #count {
     margin-top: 10px;
     padding-top: 10px;
@@ -147,17 +148,6 @@
     background: var(--stone);
   }
   .card-body { padding: 14px 16px 16px; }
-  .card-tag {
-    display: inline-block;
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--forest);
-    background: rgba(46,94,78,0.09);
-    border-radius: 20px;
-    padding: 3px 9px;
-    margin-bottom: 8px;
-  }
   .card-title {
     font-family: 'Lato', sans-serif;
     font-weight: 700;
@@ -166,16 +156,39 @@
     color: var(--ink);
     margin: 0 0 4px;
   }
-  .card-meta {
+  .card-name {
     font-size: 12.5px;
+    font-style: italic;
     color: var(--ink-soft);
     margin: 0 0 8px;
   }
-  .card-desc {
+  .card-line {
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.6;
     color: var(--ink);
     margin: 0;
+  }
+
+  .carousel-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px 14px;
+    border-top: 1px solid var(--line);
+    margin-top: 10px;
+  }
+  .carousel-btn {
+    border: none; background: var(--stone);
+    color: var(--forest-dark);
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    font-size: 14px; line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .carousel-btn:hover { background: var(--forest); color: var(--white); }
+  .carousel-count {
+    font-size: 12px;
+    color: var(--ink-soft);
+    font-weight: 600;
   }
 
   /* ---------- Cluster styling (override default blue) ---------- */
@@ -309,6 +322,8 @@ function stubRowsToProjects() {
       country: "South Africa",
       lat, lng,
       type: row.type,
+      size: row.size,
+      nbConv: row.nbConv,
       description: `${row.type} ${row.nbConv === 'NB' ? 'new build' : 'conversion'}, approx. ${row.size}m².`,
       photo: PLACEHOLDER_PHOTO,
       year: row.year,
@@ -341,6 +356,8 @@ function csvRowToProject(row, index) {
     lat: isNaN(lat) ? null : finalLat,
     lng: isNaN(lng) ? null : finalLng,
     type: row["Type"] || "",
+    size,
+    nbConv,
     description: `${row["Type"] || ""} ${nbConv === 'NB' ? 'new build' : nbConv === 'Conv' ? 'conversion' : ''}${size ? `, approx. ${size}m²` : ''}`.trim(),
     photo: row["Photo"] || PLACEHOLDER_PHOTO,
     year: row["Year"] || "",
@@ -379,9 +396,13 @@ const map = L.map('map', {
 
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors',
-  maxZoom: 19,
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Esri, HERE, Garmin, &copy; OpenStreetMap contributors, and the GIS community',
+  maxZoom: 16,
+}).addTo(map);
+
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 16,
 }).addTo(map);
 
 const clusterGroup = L.markerClusterGroup({
@@ -397,9 +418,21 @@ const clusterGroup = L.markerClusterGroup({
   },
 });
 
-const PUBLIC_COLOR  = '#3DBE5A'; // public installations
-const PRIVATE_COLOR = '#E5484D'; // private installations
-const NEUTRAL_COLOR = '#5B6963'; // cluster badges (mix of public + private, so kept neutral)
+const PUBLIC_COLOR  = '#2F80ED'; // public installations — blue
+const PRIVATE_COLOR = '#2E9E4E'; // private installations — green
+const NEUTRAL_COLOR = '#5B6963'; // grouped/cluster badges (mix of public + private, so kept neutral)
+
+const TYPE_LABELS = {
+  EP:  'EcoPool',
+  EI:  'EcoIsland',
+  NSP: 'Natural Swimming Pool',
+};
+function typeLabel(type) {
+  return TYPE_LABELS[type] || type || 'Project';
+}
+function buildLabel(nbConv) {
+  return nbConv === 'NB' ? 'New Build' : nbConv === 'Conv' ? 'Conversion' : '';
+}
 
 function pinIcon(visibility) {
   const color = visibility === 'Public' ? PUBLIC_COLOR : PRIVATE_COLOR;
@@ -416,47 +449,160 @@ function pinIcon(visibility) {
   });
 }
 
-function popupHtml(p) {
-  const showRealName = p.visibility === 'Public';
-  const title = showRealName ? p.name : `Private ${p.type}`.trim();
-  const metaParts = [p.area, p.country !== 'South Africa' ? p.country : null, p.year].filter(Boolean);
+function groupIcon(count) {
+  const size = 28;
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      width:${size}px;height:${size}px;border-radius:50%;
+      background:${NEUTRAL_COLOR};
+      border:2.5px solid white;
+      display:flex;align-items:center;justify-content:center;
+      color:white;font-family:'Lato',sans-serif;font-weight:700;font-size:12px;
+      box-shadow:0 1px 4px rgba(0,0,0,0.35);
+    ">${count}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
+function projectCardInner(p) {
+  const size = p.size ? `${p.size}m²` : '';
+  const build = buildLabel(p.nbConv);
   return `
-    <img class="card-photo" src="${p.photo}" alt="${title}" loading="lazy" onerror="this.src='${PLACEHOLDER_PHOTO}'">
+    <img class="card-photo" src="${p.photo}" alt="${p.area}" loading="lazy" onerror="this.src='${PLACEHOLDER_PHOTO}'">
     <div class="card-body">
-      <span class="card-tag">${p.type || 'Project'}</span>
-      <p class="card-title">${title}</p>
-      <p class="card-meta">${metaParts.join(' · ')}</p>
-      <p class="card-desc">${p.description || ''}</p>
+      <p class="card-title">${p.area}${p.year ? ' - ' + p.year : ''}</p>
+      ${p.visibility === 'Public' ? `<p class="card-name">${p.name}</p>` : ''}
+      <p class="card-line">${typeLabel(p.type)}</p>
+      ${build ? `<p class="card-line">${build}</p>` : ''}
+      ${size ? `<p class="card-line">${size}</p>` : ''}
     </div>
   `;
 }
+
+const AREA_GROUPS = {};
+const areaCarouselIndex = {};
+
+function carouselInner(groupId) {
+  const group = AREA_GROUPS[groupId];
+  const idx = areaCarouselIndex[groupId] || 0;
+  return projectCardInner(group[idx]) + `
+    <div class="carousel-nav">
+      <button onclick="epCarouselNav(event, '${groupId}', -1)" class="carousel-btn" aria-label="Previous">&#8592;</button>
+      <span class="carousel-count">${idx + 1} / ${group.length}</span>
+      <button onclick="epCarouselNav(event, '${groupId}', 1)" class="carousel-btn" aria-label="Next">&#8594;</button>
+    </div>
+  `;
+}
+
+function carouselHtml(groupId) {
+  return `<div id="${groupId}-wrap">${carouselInner(groupId)}</div>`;
+}
+
+window.epCarouselNav = function (evt, groupId, delta) {
+  if (evt) { evt.stopPropagation(); evt.preventDefault(); }
+  const group = AREA_GROUPS[groupId];
+  if (!group) return;
+  let idx = (areaCarouselIndex[groupId] || 0) + delta;
+  if (idx < 0) idx = group.length - 1;
+  if (idx >= group.length) idx = 0;
+  areaCarouselIndex[groupId] = idx;
+  const wrap = document.getElementById(groupId + '-wrap');
+  if (wrap) wrap.innerHTML = carouselInner(groupId);
+};
 
 /* =====================================================================
    RENDER — each project gets a marker (in the cluster group) AND a
    privacy circle (added/removed directly on the map based on zoom).
    Both are clickable and open the same popup card.
    ===================================================================== */
-let projectLayers = []; // { project, marker, circle }
+function distanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function makeUnionFind(n) {
+  const parent = Array.from({ length: n }, (_, i) => i);
+  function find(x) { return parent[x] === x ? x : (parent[x] = find(parent[x])); }
+  function union(a, b) { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; }
+  return { find, union };
+}
+
+let projectLayers = []; // { marker, circle }
 
 function buildLayers(projects) {
-  projectLayers = projects.map((p) => {
-    const marker = L.marker([p.lat, p.lng], { icon: pinIcon(p.visibility) });
-    marker.bindPopup(popupHtml(p), { closeButton: true, maxWidth: 280 });
+  const n = projects.length;
+  const uf = makeUnionFind(n);
+  const touchDistance = CIRCLE_RADIUS_M * 2;
 
-    const circleColor = p.visibility === 'Public' ? PUBLIC_COLOR : PRIVATE_COLOR;
-    const circle = L.circle([p.lat, p.lng], {
-      radius: CIRCLE_RADIUS_M,
-      color: circleColor,
-      weight: 1.5,
-      fillColor: circleColor,
-      fillOpacity: 0.22,
-      opacity: 0.7,
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const d = distanceMeters(projects[i].lat, projects[i].lng, projects[j].lat, projects[j].lng);
+      if (d <= touchDistance) uf.union(i, j);
+    }
+  }
+
+  const clusters = {};
+  for (let i = 0; i < n; i++) {
+    const root = uf.find(i);
+    (clusters[root] = clusters[root] || []).push(projects[i]);
+  }
+
+  projectLayers = [];
+  let groupCounter = 0;
+
+  Object.values(clusters).forEach((group) => {
+    groupCounter++;
+    const groupId = 'grp' + groupCounter;
+    const isShared = group.length > 1;
+
+    if (isShared) {
+      AREA_GROUPS[groupId] = group;
+      areaCarouselIndex[groupId] = 0;
+    }
+
+    group.forEach((p, idxInGroup) => {
+      const marker = L.marker([p.lat, p.lng], { icon: pinIcon(p.visibility) });
+      const circleColor = p.visibility === 'Public' ? PUBLIC_COLOR : PRIVATE_COLOR;
+      const circle = L.circle([p.lat, p.lng], {
+        radius: CIRCLE_RADIUS_M,
+        color: circleColor,
+        weight: 1.5,
+        fillColor: circleColor,
+        fillOpacity: 0.22,
+        opacity: 0.7,
+      });
+
+      if (isShared) {
+        // Every project in this touching-cluster shares one carousel.
+        // Whichever pin/circle is actually clicked sets the carousel to
+        // open on THAT project first — visitors can still arrow through
+        // to see the rest of the cluster from there.
+        marker.bindPopup('', { closeButton: true, maxWidth: 280 });
+        marker.on('popupopen', () => {
+          areaCarouselIndex[groupId] = idxInGroup;
+          marker.setPopupContent(carouselHtml(groupId));
+        });
+        circle.bindPopup('', { closeButton: true, maxWidth: 280 });
+        circle.on('popupopen', () => {
+          areaCarouselIndex[groupId] = idxInGroup;
+          circle.setPopupContent(carouselHtml(groupId));
+        });
+      } else {
+        marker.bindPopup(projectCardInner(p), { closeButton: true, maxWidth: 280 });
+        circle.bindPopup(projectCardInner(p), { closeButton: true, maxWidth: 280 });
+      }
+
+      clusterGroup.addLayer(marker);
+      projectLayers.push({ marker, circle });
     });
-    circle.bindPopup(popupHtml(p), { closeButton: true, maxWidth: 280 });
-
-    clusterGroup.addLayer(marker);
-    return { project: p, marker, circle };
   });
+
   map.addLayer(clusterGroup);
   updateZoomState();
 }
