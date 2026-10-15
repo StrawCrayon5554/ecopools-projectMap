@@ -65,6 +65,23 @@
     transition: opacity 0.4s ease;
   }
   #loading.hidden { opacity: 0; pointer-events: none; }
+
+  #map-hint {
+    position: absolute;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 1500;
+    background: rgba(34,48,42,0.82);
+    color: #FFFFFF;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 20px;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+
+  #map-hint.hidden { opacity: 0; }
   .loader-ring {
     width: 34px; height: 34px;
     border: 3px solid var(--line);
@@ -214,6 +231,7 @@
 <body>
 
 <div id="map"></div>
+<div id="map-hint">Click to explore the map</div>
 
 <div id="panel">
   <h1>Our Projects</h1>
@@ -239,8 +257,9 @@
    ===================================================================== */
 const SHEET_SOURCES = [
   { label: "Cape Town", url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQZ2niCAjCpEuyU4nqDzmnB7zqjAN0KmjS1hMkX8EoIYvRSQT8iVddzcQPLbYZ8hl05yjo8J7v2hRIq/pub?gid=1573504572&single=true&output=csv" },
-  // { label: "Australia",  url: "https://docs.google.com/spreadsheets/d/e/XXXX/pub?gid=123&single=true&output=csv" },
-  // { label: "Croatia",    url: "https://docs.google.com/spreadsheets/d/e/XXXX/pub?gid=456&single=true&output=csv" },
+  { label: "Greece",     url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQZ2niCAjCpEuyU4nqDzmnB7zqjAN0KmjS1hMkX8EoIYvRSQT8iVddzcQPLbYZ8hl05yjo8J7v2hRIq/pub?gid=355405093&single=true&output=csv" },
+  { label: "UK",         url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQZ2niCAjCpEuyU4nqDzmnB7zqjAN0KmjS1hMkX8EoIYvRSQT8iVddzcQPLbYZ8hl05yjo8J7v2hRIq/pub?gid=1892328559&single=true&output=csv" },
+  { label: "Czech Republic", url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQZ2niCAjCpEuyU4nqDzmnB7zqjAN0KmjS1hMkX8EoIYvRSQT8iVddzcQPLbYZ8hl05yjo8J7v2hRIq/pub?gid=754331020&single=true&output=csv" },
 ];
 
 const USE_STUB_DATA = SHEET_SOURCES.length === 0; // auto-falls back to stub data until sheet links are added above
@@ -381,8 +400,14 @@ async function loadAllProjects() {
   if (USE_STUB_DATA) {
     return stubRowsToProjects();
   }
-  const batches = await Promise.all(SHEET_SOURCES.map(fetchSheet));
-  return batches.flat().filter(p => p.lat !== null && p.lng !== null);
+  const results = await Promise.allSettled(SHEET_SOURCES.map(fetchSheet));
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') console.error('Failed to load tab:', SHEET_SOURCES[i].label, r.reason);
+  });
+  return results
+    .filter(r => r.status === 'fulfilled')
+    .flatMap(r => r.value)
+    .filter(p => p.lat !== null && p.lng !== null);
 }
 
 /* =====================================================================
@@ -641,6 +666,15 @@ map.on('zoomend', updateZoomState);
     }
 
     document.getElementById('loading').classList.add('hidden');
+
+    // One-time hint that fades on first click/touch, since the browser
+    // requires the iframe to be focused before it'll capture scroll/zoom —
+    // this just makes that requirement visible to a first-time visitor.
+    const hint = document.getElementById('map-hint');
+    const dismissHint = () => { hint.classList.add('hidden'); map.off('click', dismissHint); };
+    map.on('click', dismissHint);
+    setTimeout(() => hint.classList.add('hidden'), 6000); // fade it anyway after 6s
+
   } catch (err) {
     console.error('Failed to load project data:', err);
     document.getElementById('loading').classList.add('hidden');
