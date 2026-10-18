@@ -417,6 +417,7 @@ const map = L.map('map', {
   zoomControl: false,
   minZoom: 2,
   maxZoom: 18,
+  scrollWheelZoom: false, // mouse-wheel no longer zooms the map, so wheel-scrolling over it just scrolls the page normally
 }).setView([-33.95, 18.55], 11); // default: Cape Town
 
 L.control.zoom({ position: 'bottomright' }).addTo(map);
