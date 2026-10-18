@@ -417,20 +417,7 @@ const map = L.map('map', {
   zoomControl: false,
   minZoom: 2,
   maxZoom: 18,
-  scrollWheelZoom: false, // plain scroll never zooms the map; see the custom handler below for trackpad pinch
 }).setView([-33.95, 18.55], 11); // default: Cape Town
-
-// Trackpad pinch-to-zoom is sent to the browser as a wheel event with
-// ctrlKey set, so a plain scrollWheelZoom:false would also block that.
-// This lets Ctrl/pinch zoom the map while an ordinary scroll still just
-// scrolls the page normally.
-map.getContainer().addEventListener('wheel', (e) => {
-  if (e.ctrlKey) {
-    e.preventDefault();
-    if (e.deltaY < 0) map.zoomIn();
-    else map.zoomOut();
-  }
-}, { passive: false });
 
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
